@@ -1,6 +1,7 @@
 package routes
 
 import net.router
+
 include config "config.salam"
 include handlers "handlers.salam"
 

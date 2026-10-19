@@ -3,6 +3,7 @@ package docs
 import net.http.swagger
 import str
 import net.router
+
 include config "config.salam"
 include model "model.salam"
 include apierr "apierr.salam"

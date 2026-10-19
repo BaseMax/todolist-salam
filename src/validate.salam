@@ -1,6 +1,7 @@
 package validate
 
 import encoding.json
+
 include model "model.salam"
 include apierr "apierr.salam"
 include request "request.salam"
