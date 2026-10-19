@@ -99,7 +99,7 @@ pub func Create(t: model.Task): model.Task:
     task.id = g_next_id
     task.created_at = now
     task.updated_at = now
-    if task.status == model.Status.completed:
+    if model.IsCompleted(task.status):
         task.completed_at = now
     end
     g_next_id = g_next_id + 1
@@ -121,7 +121,7 @@ pub func Replace(id: i64, t: model.Task): bool:
     task.id = id
     task.created_at = g_tasks.get(idx).created_at
     task.updated_at = now
-    if task.status == model.Status.completed:
+    if model.IsCompleted(task.status):
         if task.completed_at.len() == 0:
             task.completed_at = now
         end
@@ -135,7 +135,7 @@ pub func Replace(id: i64, t: model.Task): bool:
 end
 
 @doc "Move a task to a new status."
-pub func SetStatus(id: i64, status: model.Status, completed_at: str, now: str): bool:
+pub func SetStatus(id: i64, status: str, completed_at: str, now: str): bool:
     sync.Lock(g_mutex)
     defer sync.Unlock(g_mutex)
     idx := index_of_locked(id)
@@ -171,8 +171,8 @@ pub func RemoveCompleted(): int:
     defer sync.Unlock(g_mutex)
     mut removed := 0
     mut i := 0
-    until i >= g_tasks.len():
-        if g_tasks.get(i).status == model.Status.completed:
+    until i < g_tasks.len():
+        if model.IsCompleted(g_tasks.get(i).status):
             g_tasks.get(i).tags.free()
             g_tasks.remove_at(i)
             removed = removed + 1

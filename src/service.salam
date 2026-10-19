@@ -7,6 +7,13 @@ include store "store.salam"
 include validate "validate.salam"
 include apierr "apierr.salam"
 
+@doc "the write went through"
+pub const OutcomeOk := "ok"
+@doc "no task has that id"
+pub const OutcomeNotFound := "not_found"
+@doc "a field did not validate"
+pub const OutcomeInvalid := "invalid"
+
 @doc "the filters, ordering and paging a list request asked for"
 pub struct Query:
     pub status: str = ""
@@ -17,13 +24,6 @@ pub struct Query:
     pub order: str = "desc"
     pub limit: int = 20
     pub offset: int = 0
-end
-
-@doc "how a write request ended"
-pub enum Outcome:
-    ok,
-    not_found,
-    invalid
 end
 
 @doc "counts across the whole list"
@@ -50,10 +50,10 @@ func text_matches(t: model.Task, needle: str): bool:
 end
 
 func matches(t: model.Task, q: Query): bool:
-    if q.status.len() > 0 and model.StatusText(t.status) != q.status:
+    if q.status.len() > 0 and t.status != q.status:
         ret false
     end
-    if q.priority.len() > 0 and model.PriorityText(t.priority) != q.priority:
+    if q.priority.len() > 0 and t.priority != q.priority:
         ret false
     end
     if q.tag.len() > 0 and not has_tag(t, q.tag):
@@ -98,7 +98,7 @@ pub func List(q: Query, total &: int): Vector<model.Task>:
     sort_matched(matched, q.sort, q.order == "desc")
     mut page := Vector {} as Vector<model.Task>
     mut i := q.offset
-    until i >= matched.len() or page.len() >= q.limit:
+    until i < matched.len() and page.len() < q.limit:
         page.push(matched.get(i))
         i = i + 1
     end
@@ -114,14 +114,14 @@ pub func Summary(): Stats:
     mut s := Stats {}
     each t in snapshot:
         s.total = s.total + 1
-        if t.status == model.Status.pending:
+        if t.status == model.StatusPending:
             s.pending = s.pending + 1
-        else t.status == model.Status.in_progress:
+        else t.status == model.StatusInProgress:
             s.in_progress = s.in_progress + 1
         else:
             s.completed = s.completed + 1
         end
-        if t.status != model.Status.completed and t.due_date.len() > 0 and t.due_date < today:
+        if not model.IsCompleted(t.status) and t.due_date.len() > 0 and t.due_date < today:
             s.overdue = s.overdue + 1
         end
     end
@@ -146,31 +146,31 @@ pub func Create(body: str, out &: model.Task, issues &: Vector<apierr.FieldIssue
 end
 
 @doc "Replace or patch a task out of a request body."
-pub func Update(id: i64, body: str, partial: bool, out &: model.Task, issues &: Vector<apierr.FieldIssue>): Outcome:
+pub func Update(id: i64, body: str, partial: bool, out &: model.Task, issues &: Vector<apierr.FieldIssue>): str:
     mut base := model.Task {}
     if not store.Find(id, base):
-        ret Outcome.not_found
+        ret OutcomeNotFound
     end
     mut draft := model.Task {}
     if not validate.Apply(body, base, not partial, draft, issues):
         draft.tags.free()
-        ret Outcome.invalid
+        ret OutcomeInvalid
     end
     if not store.Replace(id, draft):
         draft.tags.free()
-        ret Outcome.not_found
+        ret OutcomeNotFound
     end
     if not store.Find(id, out):
-        ret Outcome.not_found
+        ret OutcomeNotFound
     end
-    ret Outcome.ok
+    ret OutcomeOk
 end
 
 @doc "Mark a task complete, or open it again."
-pub func SetStatus(id: i64, status: model.Status): bool:
+pub func SetStatus(id: i64, status: str): bool:
     now := time.FormatISO(time.Now())
     mut completed_at := ""
-    if status == model.Status.completed:
+    if model.IsCompleted(status):
         completed_at = now
     end
     ret store.SetStatus(id, status, completed_at, now)

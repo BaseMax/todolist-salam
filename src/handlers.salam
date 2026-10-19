@@ -113,20 +113,20 @@ func update(ctx: i64, partial: bool):
     mut issues := Vector {} as Vector<apierr.FieldIssue>
     mut updated := model.Task {}
     outcome := service.Update(id, body, partial, updated, issues)
-    if outcome == service.Outcome.invalid:
+    if outcome == service.OutcomeInvalid:
         apierr.Send(ctx, 422, apierr.WithIssues("validation_failed", "one or more fields are invalid", issues))
         issues.free()
         ret
     end
     issues.free()
-    if outcome == service.Outcome.not_found:
+    if outcome == service.OutcomeNotFound:
         not_found(ctx, id)
         ret
     end
     apierr.SendJson(ctx, 200, json.Marshal(updated))
 end
 
-func set_status(ctx: i64, status: model.Status):
+func set_status(ctx: i64, status: str):
     mut id := 0 as i64
     if not param_id(ctx, id):
         bad_id(ctx)
@@ -220,12 +220,12 @@ end
 
 @doc "Mark a task complete."
 pub func CompleteTask(ctx: i64):
-    set_status(ctx, model.Status.completed)
+    set_status(ctx, model.StatusCompleted)
 end
 
 @doc "Open a completed task again."
 pub func ReopenTask(ctx: i64):
-    set_status(ctx, model.Status.pending)
+    set_status(ctx, model.StatusPending)
 end
 
 @doc "Counts across the whole list."

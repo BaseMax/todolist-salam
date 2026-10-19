@@ -76,9 +76,8 @@ pub func Apply(body: str, base: model.Task, require_title: bool, out &: model.Ta
 
     if json.Has(body, "status"):
         raw := request.Text(body, "status", "")
-        mut parsed := t.status
-        if model.StatusFromText(raw, parsed):
-            t.status = parsed
+        if model.ValidStatus(raw):
+            t.status = raw
         else:
             issue(issues, "status", "status must be one of pending, in_progress, completed")
         end
@@ -86,9 +85,8 @@ pub func Apply(body: str, base: model.Task, require_title: bool, out &: model.Ta
 
     if json.Has(body, "priority"):
         raw := request.Text(body, "priority", "")
-        mut parsed := t.priority
-        if model.PriorityFromText(raw, parsed):
-            t.priority = parsed
+        if model.ValidPriority(raw):
+            t.priority = raw
         else:
             issue(issues, "priority", "priority must be one of low, medium, high, urgent")
         end
