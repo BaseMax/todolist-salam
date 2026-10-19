@@ -1,0 +1,151 @@
+package docs
+
+import net.http.swagger
+import str
+import net.router
+include config "config.salam"
+include model "model.salam"
+include apierr "apierr.salam"
+include handlers "handlers.salam"
+include service "service.salam"
+
+@doc "Build the OpenAPI document straight from the live router and the real types."
+pub func Build(r: router.Router, cfg: config.Config): swagger.Doc:
+    mut d := swagger.New(config.AppTitle, config.AppVersion)
+    swagger.Describe(d, config.AppDescription)
+    swagger.Server(d, "http://127.0.0.1:".concat(str.FromInt(cfg.port as i64)), "local development")
+    swagger.License(d, "MIT", "https://opensource.org/license/mit")
+    swagger.Contact(d, "Seyyed Ali Mohammadiyeh", "https://github.com/BaseMax", "MaxBaseCode@gmail.com")
+    swagger.Scan(d, r)
+
+    prefix := cfg.api_prefix
+    tasks := prefix.concat("/tasks")
+    by_id := tasks.concat("/:id")
+
+    mut statuses := Vector {} as Vector<str>
+    defer statuses.free()
+    statuses.push("pending")
+    statuses.push("in_progress")
+    statuses.push("completed")
+    mut priorities := Vector {} as Vector<str>
+    defer priorities.free()
+    priorities.push("low")
+    priorities.push("medium")
+    priorities.push("high")
+    priorities.push("urgent")
+    mut orders := Vector {} as Vector<str>
+    defer orders.free()
+    orders.push("asc")
+    orders.push("desc")
+
+    health_sample := handlers.HealthInfo {}
+    page_sample := handlers.Page {}
+    input_sample := model.TaskInput {}
+    task_sample := model.Task {}
+    problem_sample := apierr.Problem {}
+    stats_sample := service.Stats {}
+    deleted_sample := handlers.Deleted {}
+
+    _h := swagger.At(d, "GET", "/health")
+
+    swagger.Tag(d, "system")
+    swagger.Summary(d, "Health check")
+    swagger.Details(d, "Reports that the service is up and how many tasks it is holding.")
+    swagger.OperationId(d, "getHealth")
+    swagger.Returns(d, 200, "the service is healthy", health_sample)
+
+    _a := swagger.At(d, "GET", tasks)
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "List tasks")
+    swagger.Details(d, "Newest first by default. Filters combine, and paging is by offset and limit.")
+    swagger.OperationId(d, "listTasks")
+    swagger.QueryEnum(d, "status", "only tasks in this status", false, statuses)
+    swagger.QueryEnum(d, "priority", "only tasks with this priority", false, priorities)
+    swagger.Query(d, "tag", "only tasks carrying this tag", false)
+    swagger.Query(d, "q", "search the title and the description", false)
+    swagger.Query(d, "sort", "id, title, priority, created_at, updated_at or due_date", false)
+    swagger.QueryEnum(d, "order", "ascending or descending", false, orders)
+    swagger.QueryTyped(d, "limit", "page size, 1 to 100", false, 20)
+    swagger.QueryTyped(d, "offset", "how many matches to skip", false, 0)
+    swagger.Returns(d, 200, "one page of tasks", page_sample)
+
+    _b := swagger.At(d, "POST", tasks)
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Create a task")
+    swagger.OperationId(d, "createTask")
+    swagger.Accepts(d, "the task to create", input_sample)
+    swagger.Returns(d, 201, "the task as stored, with its id", task_sample)
+    swagger.ReturnsHeader(d, 201, "Location", "where the new task can be fetched")
+    swagger.Returns(d, 400, "the body is not JSON", problem_sample)
+    swagger.Returns(d, 422, "a field is missing or malformed", problem_sample)
+
+    _c := swagger.At(d, "GET", tasks.concat("/stats"))
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Task statistics")
+    swagger.Details(d, "Counts by status, plus how many open tasks are past their due date.")
+    swagger.OperationId(d, "getStats")
+    swagger.Returns(d, 200, "the counts", stats_sample)
+
+    _d := swagger.At(d, "DELETE", tasks.concat("/completed"))
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Delete every completed task")
+    swagger.OperationId(d, "clearCompleted")
+    swagger.Returns(d, 200, "how many tasks went", deleted_sample)
+
+    _e := swagger.At(d, "GET", by_id)
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Fetch one task")
+    swagger.OperationId(d, "getTask")
+    swagger.PathParam(d, "id", "the id of the task")
+    swagger.Returns(d, 200, "the task", task_sample)
+    swagger.Returns(d, 400, "the id is not a positive integer", problem_sample)
+    swagger.Returns(d, 404, "no task with that id", problem_sample)
+
+    _f := swagger.At(d, "PUT", by_id)
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Replace a task")
+    swagger.Details(d, "Every field is taken from the body; a missing title is an error.")
+    swagger.OperationId(d, "replaceTask")
+    swagger.PathParam(d, "id", "the id of the task")
+    swagger.Accepts(d, "the new task", input_sample)
+    swagger.Returns(d, 200, "the task as stored", task_sample)
+    swagger.Returns(d, 404, "no task with that id", problem_sample)
+    swagger.Returns(d, 422, "a field is missing or malformed", problem_sample)
+
+    _g := swagger.At(d, "PATCH", by_id)
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Patch a task")
+    swagger.Details(d, "Only the members present in the body change.")
+    swagger.OperationId(d, "patchTask")
+    swagger.PathParam(d, "id", "the id of the task")
+    swagger.AcceptsOptional(d, "the fields to change", input_sample)
+    swagger.Returns(d, 200, "the task as stored", task_sample)
+    swagger.Returns(d, 404, "no task with that id", problem_sample)
+    swagger.Returns(d, 422, "a field is malformed", problem_sample)
+
+    _i := swagger.At(d, "DELETE", by_id)
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Delete a task")
+    swagger.OperationId(d, "deleteTask")
+    swagger.PathParam(d, "id", "the id of the task")
+    swagger.Returns(d, 200, "how many tasks went", deleted_sample)
+    swagger.Returns(d, 404, "no task with that id", problem_sample)
+
+    _j := swagger.At(d, "POST", by_id.concat("/complete"))
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Complete a task")
+    swagger.OperationId(d, "completeTask")
+    swagger.PathParam(d, "id", "the id of the task")
+    swagger.Returns(d, 200, "the completed task", task_sample)
+    swagger.Returns(d, 404, "no task with that id", problem_sample)
+
+    _k := swagger.At(d, "POST", by_id.concat("/reopen"))
+    swagger.Tag(d, "tasks")
+    swagger.Summary(d, "Reopen a task")
+    swagger.OperationId(d, "reopenTask")
+    swagger.PathParam(d, "id", "the id of the task")
+    swagger.Returns(d, 200, "the reopened task", task_sample)
+    swagger.Returns(d, 404, "no task with that id", problem_sample)
+
+    ret d
+end

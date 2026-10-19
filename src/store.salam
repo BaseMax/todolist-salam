@@ -1,0 +1,198 @@
+package store
+
+import encoding.json
+import encoding.encerr
+import filepath
+import fs.dir
+import fs.file
+import sync
+import time
+include model "model.salam"
+
+mut g_tasks := Vector {} as Vector<model.Task>
+mut g_next_id := 1 as i64
+mut g_mutex := sync.NewMutex()
+mut g_file := "data/tasks.json"
+
+func persist_locked():
+    parent := filepath.Dir(g_file)
+    if parent.len() > 0:
+        dir.MkdirAll(parent)
+    end
+    file.AtomicWrite(g_file, json.Marshal(g_tasks))
+end
+
+func index_of_locked(id: i64): int:
+    repeat g_tasks.len() in i:
+        if g_tasks.get(i).id == id:
+            ret i
+        end
+    end
+    ret -1
+end
+
+func recompute_next_id_locked():
+    mut highest := 0 as i64
+    each t in g_tasks:
+        if t.id > highest:
+            highest = t.id
+        end
+    end
+    g_next_id = highest + 1
+end
+
+@doc "Read the tasks file into memory, if it exists and parses."
+pub func Init(path: str):
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    g_file = path
+    if not file.Exists(path):
+        ret
+    end
+    text := file.ReadText(path)
+    if text.len() == 0:
+        ret
+    end
+    mut loaded := Vector {} as Vector<model.Task>
+    mut e := encerr.NoError()
+    if json.Unmarshal(text, loaded, e):
+        g_tasks.free()
+        g_tasks = loaded
+        recompute_next_id_locked()
+    else:
+        loaded.free()
+    end
+end
+
+@doc "How many tasks are stored."
+pub func Count(): int:
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    ret g_tasks.len()
+end
+
+@doc "A borrowed copy of every task, in insertion order."
+pub func Snapshot(): Vector<model.Task>:
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    ret g_tasks.copy()
+end
+
+@doc "Look one task up. The result borrows its tags from the store."
+pub func Find(id: i64, out &: model.Task): bool:
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    idx := index_of_locked(id)
+    if idx < 0:
+        ret false
+    end
+    out = g_tasks.get(idx)
+    ret true
+end
+
+@doc "Give a task an id and its timestamps, store it, and hand back a copy of it."
+pub func Create(t: model.Task): model.Task:
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    now := time.FormatISO(time.Now())
+    mut task := t
+    task.id = g_next_id
+    task.created_at = now
+    task.updated_at = now
+    if task.status == model.Status.completed:
+        task.completed_at = now
+    end
+    g_next_id = g_next_id + 1
+    g_tasks.push(task)
+    persist_locked()
+    ret task
+end
+
+@doc "Overwrite a stored task, keeping its id and creation time. Takes ownership of t.tags."
+pub func Replace(id: i64, t: model.Task): bool:
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    idx := index_of_locked(id)
+    if idx < 0:
+        ret false
+    end
+    now := time.FormatISO(time.Now())
+    mut task := t
+    task.id = id
+    task.created_at = g_tasks.get(idx).created_at
+    task.updated_at = now
+    if task.status == model.Status.completed:
+        if task.completed_at.len() == 0:
+            task.completed_at = now
+        end
+    else:
+        task.completed_at = ""
+    end
+    g_tasks.get(idx).tags.free()
+    g_tasks.set(idx, task)
+    persist_locked()
+    ret true
+end
+
+@doc "Move a task to a new status."
+pub func SetStatus(id: i64, status: model.Status, completed_at: str, now: str): bool:
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    idx := index_of_locked(id)
+    if idx < 0:
+        ret false
+    end
+    task := g_tasks.get(idx)
+    task.status = status
+    task.updated_at = now
+    task.completed_at = completed_at
+    g_tasks.set(idx, task)
+    persist_locked()
+    ret true
+end
+
+@doc "Delete one task."
+pub func Remove(id: i64): bool:
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    idx := index_of_locked(id)
+    if idx < 0:
+        ret false
+    end
+    g_tasks.get(idx).tags.free()
+    g_tasks.remove_at(idx)
+    persist_locked()
+    ret true
+end
+
+@doc "Delete every completed task and report how many went."
+pub func RemoveCompleted(): int:
+    sync.Lock(g_mutex)
+    defer sync.Unlock(g_mutex)
+    mut removed := 0
+    mut i := 0
+    until i >= g_tasks.len():
+        if g_tasks.get(i).status == model.Status.completed:
+            g_tasks.get(i).tags.free()
+            g_tasks.remove_at(i)
+            removed = removed + 1
+        else:
+            i = i + 1
+        end
+    end
+    if removed > 0:
+        persist_locked()
+    end
+    ret removed
+end
+
+@doc "Release everything the store holds."
+pub func Shutdown():
+    sync.Lock(g_mutex)
+    repeat g_tasks.len() in i:
+        g_tasks.get(i).tags.free()
+    end
+    g_tasks.free()
+    sync.Unlock(g_mutex)
+    sync.Destroy(g_mutex)
+end

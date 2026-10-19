@@ -1,0 +1,35 @@
+package config
+
+import env
+
+pub const AppTitle := "Todo List API"
+pub const AppVersion := "1.0.0"
+pub const AppDescription := "A JSON task list over HTTP: create, read, update and delete todos."
+
+@doc "Everything the server needs to start, all of it overridable through the environment."
+pub struct Config:
+    @doc "address the server binds to"
+    pub host: str = "127.0.0.1"
+    @doc "TCP port the server listens on"
+    pub port: int = 8080
+    @doc "JSON file the tasks are kept in"
+    pub data_file: str = "data/tasks.json"
+    @doc "prefix every task route lives under"
+    pub api_prefix: str = "/api/v1"
+    @doc "prefix the OpenAPI document and its browser UI are served from"
+    pub docs_prefix: str = "/docs"
+    @doc "log one line per request"
+    pub access_log: bool = true
+end
+
+@doc "Read the configuration, falling back to defaults when a variable is unset."
+pub func Load(): Config:
+    mut c := Config {}
+    c.host = env.GetOr("TODOLIST_HOST", c.host)
+    c.port = env.GetInt("TODOLIST_PORT", c.port) as int
+    c.data_file = env.GetOr("TODOLIST_DATA_FILE", c.data_file)
+    c.api_prefix = env.GetOr("TODOLIST_API_PREFIX", c.api_prefix)
+    c.docs_prefix = env.GetOr("TODOLIST_DOCS_PREFIX", c.docs_prefix)
+    c.access_log = env.GetBool("TODOLIST_ACCESS_LOG", c.access_log)
+    ret c
+end

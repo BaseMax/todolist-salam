@@ -1,0 +1,46 @@
+package apierr
+
+import encoding.json
+import net.http
+
+@doc "one field that failed validation, and why"
+pub struct FieldIssue:
+    pub field: str = ""
+    pub message: str = ""
+end
+
+@doc "the error body every failing request returns"
+pub struct Problem:
+    @doc "a short, stable, machine-readable name"
+    pub error: str = ""
+    @doc "a sentence a person can act on"
+    pub detail: str = ""
+    @doc "the fields that failed, when the problem is a validation one"
+    @json "" "omitempty"
+    pub fields: Vector<FieldIssue> = Vector {}
+end
+
+func send_json(ctx: i64, code: int, body: str):
+    http.SetStatus(ctx, code)
+    http.Json(ctx, body)
+end
+
+@doc "Write a JSON document with the given status code."
+pub func SendJson(ctx: i64, code: int, body: str):
+    send_json(ctx, code, body)
+end
+
+@doc "Write a problem document with the given status code."
+pub func Send(ctx: i64, code: int, p: Problem):
+    send_json(ctx, code, json.Marshal(p))
+end
+
+@doc "A problem with no field detail."
+pub func New(kind: str, detail: str): Problem:
+    ret Problem { error = kind, detail = detail }
+end
+
+@doc "A problem that names the fields the client has to fix."
+pub func WithIssues(kind: str, detail: str, issues: Vector<FieldIssue>): Problem:
+    ret Problem { error = kind, detail = detail, fields = issues }
+end

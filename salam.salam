@@ -1,0 +1,49 @@
+package main
+
+import log
+import net.http
+import net.http.swagger
+import str
+include config "src/config.salam"
+include store "src/store.salam"
+include routes "src/routes.salam"
+include docs "src/docs.salam"
+
+func announce(cfg: config.Config):
+    base := "http://".concat(cfg.host).concat(":").concat(str.FromInt(cfg.port as i64))
+    log.Info("listening on ".concat(base))
+    log.Info("api root ".concat(base).concat(cfg.api_prefix))
+    log.Info("openapi at ".concat(base).concat(cfg.docs_prefix))
+    log.Info("tasks file ".concat(cfg.data_file))
+end
+
+func main:
+    cfg := config.Load()
+    log.SetPrefix("todolist")
+    log.SetLevel(log.LevelInfo)
+
+    store.Init(cfg.data_file)
+
+    mut r := routes.Build(cfg)
+    doc := docs.Build(r, cfg)
+    swagger.Mount(doc, r, cfg.docs_prefix)
+
+    problems := swagger.Problems(doc)
+    repeat problems.len() in i:
+        log.Warn("openapi: ".concat(problems.get(i)))
+    end
+    problems.free()
+
+    announce(cfg)
+
+    mut s := http.NewServer(cfg.port)
+    http.SetHost(s, cfg.host)
+    if cfg.access_log:
+        http.EnableAccessLog(s)
+    end
+    http.Use(s, r)
+    http.Run(s)
+
+    store.Shutdown()
+    ret 0
+end

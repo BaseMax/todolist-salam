@@ -1,0 +1,241 @@
+package handlers
+
+import encoding.json
+import net.http
+import str
+include model "model.salam"
+include apierr "apierr.salam"
+include service "service.salam"
+include store "store.salam"
+
+@doc "one page of tasks, with the paging that produced it"
+pub struct Page:
+    pub total: int = 0
+    pub limit: int = 0
+    pub offset: int = 0
+    pub items: Vector<model.Task> = Vector {}
+end
+
+@doc "the health report"
+pub struct HealthInfo:
+    pub status: str = "ok"
+    pub service: str = "todolist"
+    pub version: str = "1.0.0"
+    pub tasks: int = 0
+end
+
+@doc "the outcome of a bulk delete"
+pub struct Deleted:
+    pub deleted: int = 0
+end
+
+func param_id(ctx: i64, out &: i64): bool:
+    raw := http.Param(ctx, "id")
+    if raw.len() == 0:
+        ret false
+    end
+    repeat raw.len() in i:
+        c := raw.char_at(i)
+        if c < "0" or c > "9":
+            ret false
+        end
+    end
+    n := str.ToInt(raw)
+    if n <= 0:
+        ret false
+    end
+    out = n as i64
+    ret true
+end
+
+func query_int(ctx: i64, key: str, def: int, low: int, high: int): int:
+    raw := http.Query(ctx, key)
+    if raw.len() == 0:
+        ret def
+    end
+    n := str.ToInt(raw)
+    if n < low:
+        ret low
+    end
+    if n > high:
+        ret high
+    end
+    ret n
+end
+
+func parse_query(ctx: i64): service.Query:
+    mut q := service.Query {}
+    q.status = http.UrlDecode(http.Query(ctx, "status"))
+    q.priority = http.UrlDecode(http.Query(ctx, "priority"))
+    q.tag = http.UrlDecode(http.Query(ctx, "tag"))
+    q.search = http.UrlDecode(http.Query(ctx, "q"))
+    chosen := http.UrlDecode(http.Query(ctx, "sort"))
+    if chosen.len() > 0:
+        q.sort = chosen
+    end
+    direction := http.UrlDecode(http.Query(ctx, "order"))
+    if direction == "asc" or direction == "desc":
+        q.order = direction
+    end
+    q.limit = query_int(ctx, "limit", 20, 1, 100)
+    q.offset = query_int(ctx, "offset", 0, 0, 100000000)
+    ret q
+end
+
+func body_of(ctx: i64, out &: str): bool:
+    body := http.Body(ctx)
+    if body.len() == 0 or not json.Valid(body):
+        ret false
+    end
+    out = body
+    ret true
+end
+
+func bad_id(ctx: i64):
+    apierr.Send(ctx, 400, apierr.New("invalid_id", "the task id must be a positive integer"))
+end
+
+func not_found(ctx: i64, id: i64):
+    apierr.Send(ctx, 404, apierr.New("not_found", "no task with id ".concat(str.FromInt(id))))
+end
+
+func update(ctx: i64, partial: bool):
+    mut id := 0 as i64
+    if not param_id(ctx, id):
+        bad_id(ctx)
+        ret
+    end
+    mut body := ""
+    if not body_of(ctx, body):
+        apierr.Send(ctx, 400, apierr.New("invalid_json", "the request body must be a JSON object"))
+        ret
+    end
+    mut issues := Vector {} as Vector<apierr.FieldIssue>
+    mut updated := model.Task {}
+    outcome := service.Update(id, body, partial, updated, issues)
+    if outcome == service.Outcome.invalid:
+        apierr.Send(ctx, 422, apierr.WithIssues("validation_failed", "one or more fields are invalid", issues))
+        issues.free()
+        ret
+    end
+    issues.free()
+    if outcome == service.Outcome.not_found:
+        not_found(ctx, id)
+        ret
+    end
+    apierr.SendJson(ctx, 200, json.Marshal(updated))
+end
+
+func set_status(ctx: i64, status: model.Status):
+    mut id := 0 as i64
+    if not param_id(ctx, id):
+        bad_id(ctx)
+        ret
+    end
+    if not service.SetStatus(id, status):
+        not_found(ctx, id)
+        ret
+    end
+    mut t := model.Task {}
+    if not service.Get(id, t):
+        not_found(ctx, id)
+        ret
+    end
+    apierr.SendJson(ctx, 200, json.Marshal(t))
+end
+
+@doc "Report that the service is up, and how many tasks it holds."
+pub func Health(ctx: i64):
+    report := HealthInfo { tasks = store.Count() }
+    apierr.SendJson(ctx, 200, json.Marshal(report))
+end
+
+@doc "List tasks, filtered, sorted and paged."
+pub func ListTasks(ctx: i64):
+    q := parse_query(ctx)
+    mut total := 0
+    items := service.List(q, total)
+    defer items.free()
+    page := Page { total = total, limit = q.limit, offset = q.offset, items = items }
+    apierr.SendJson(ctx, 200, json.Marshal(page))
+end
+
+@doc "Fetch one task."
+pub func GetTask(ctx: i64):
+    mut id := 0 as i64
+    if not param_id(ctx, id):
+        bad_id(ctx)
+        ret
+    end
+    mut t := model.Task {}
+    if not service.Get(id, t):
+        not_found(ctx, id)
+        ret
+    end
+    apierr.SendJson(ctx, 200, json.Marshal(t))
+end
+
+@doc "Create a task. Answers 201 with a Location header."
+pub func CreateTask(ctx: i64):
+    mut body := ""
+    if not body_of(ctx, body):
+        apierr.Send(ctx, 400, apierr.New("invalid_json", "the request body must be a JSON object"))
+        ret
+    end
+    mut issues := Vector {} as Vector<apierr.FieldIssue>
+    mut created := model.Task {}
+    if not service.Create(body, created, issues):
+        apierr.Send(ctx, 422, apierr.WithIssues("validation_failed", "one or more fields are invalid", issues))
+        issues.free()
+        ret
+    end
+    issues.free()
+    http.SetHeader(ctx, "Location", http.Path(ctx).concat("/").concat(str.FromInt(created.id)))
+    apierr.SendJson(ctx, 201, json.Marshal(created))
+end
+
+@doc "Replace every field of a task."
+pub func UpdateTask(ctx: i64):
+    update(ctx, false)
+end
+
+@doc "Change only the fields a request body mentions."
+pub func PatchTask(ctx: i64):
+    update(ctx, true)
+end
+
+@doc "Delete one task."
+pub func DeleteTask(ctx: i64):
+    mut id := 0 as i64
+    if not param_id(ctx, id):
+        bad_id(ctx)
+        ret
+    end
+    if not service.Remove(id):
+        not_found(ctx, id)
+        ret
+    end
+    apierr.SendJson(ctx, 200, json.Marshal(Deleted { deleted = 1 }))
+end
+
+@doc "Mark a task complete."
+pub func CompleteTask(ctx: i64):
+    set_status(ctx, model.Status.completed)
+end
+
+@doc "Open a completed task again."
+pub func ReopenTask(ctx: i64):
+    set_status(ctx, model.Status.pending)
+end
+
+@doc "Counts across the whole list."
+pub func Stats(ctx: i64):
+    summary := service.Summary()
+    apierr.SendJson(ctx, 200, json.Marshal(summary))
+end
+
+@doc "Delete every completed task."
+pub func ClearCompleted(ctx: i64):
+    removed := service.RemoveCompleted()
+    apierr.SendJson(ctx, 200, json.Marshal(Deleted { deleted = removed }))
+end

@@ -1,0 +1,128 @@
+package model
+
+@doc "where a task stands in its life"
+pub enum Status:
+    pending,
+    in_progress,
+    completed
+end
+
+@doc "how much a task matters"
+pub enum Priority:
+    low,
+    medium,
+    high,
+    urgent
+end
+
+@doc "one task, exactly as the API hands it back"
+pub struct Task:
+    @doc "assigned by the server and never reused"
+    pub id: i64 = 0 as i64
+    @doc "the one line that says what to do"
+    pub title: str = ""
+    @doc "the longer version, when one line is not enough"
+    @json "" "omitempty"
+    pub description: str = ""
+    @doc "where the task stands"
+    pub status: Status = Status.pending
+    @doc "how much it matters"
+    pub priority: Priority = Priority.medium
+    @doc "free-form labels"
+    pub tags: Vector<str> = Vector {}
+    @doc "the day it is due, as YYYY-MM-DD"
+    @json "" "omitempty"
+    pub due_date: str = ""
+    @doc "when the task was created"
+    pub created_at: str = ""
+    @doc "when any field last changed"
+    pub updated_at: str = ""
+    @doc "when the task was completed, empty while it is open"
+    @json "" "omitempty"
+    pub completed_at: str = ""
+end
+
+@doc "the body a client sends to create, replace or patch a task"
+pub struct TaskInput:
+    @doc "required, up to 200 characters"
+    pub title: str = ""
+    @doc "up to 2000 characters"
+    @json "" "omitempty"
+    pub description: str = ""
+    @doc "defaults to pending"
+    pub status: Status = Status.pending
+    @doc "defaults to medium"
+    pub priority: Priority = Priority.medium
+    @doc "up to 20 labels, each up to 40 characters"
+    pub tags: Vector<str> = Vector {}
+    @doc "the due date, as YYYY-MM-DD"
+    @json "" "omitempty"
+    pub due_date: str = ""
+end
+
+@doc "the text form of a status"
+pub func StatusText(s: Status): str:
+    if s == Status.in_progress:
+        ret "in_progress"
+    else s == Status.completed:
+        ret "completed"
+    end
+    ret "pending"
+end
+
+@doc "the text form of a priority"
+pub func PriorityText(p: Priority): str:
+    if p == Priority.low:
+        ret "low"
+    else p == Priority.high:
+        ret "high"
+    else p == Priority.urgent:
+        ret "urgent"
+    end
+    ret "medium"
+end
+
+@doc "the sort order of a priority, low first"
+pub func PriorityRank(p: Priority): int:
+    if p == Priority.low:
+        ret 0
+    else p == Priority.high:
+        ret 2
+    else p == Priority.urgent:
+        ret 3
+    end
+    ret 1
+end
+
+@doc "Parse a status written by a client. Returns false on an unknown word."
+pub func StatusFromText(text: str, out &: Status): bool:
+    if text == "pending":
+        out = Status.pending
+        ret true
+    else text == "in_progress":
+        out = Status.in_progress
+        ret true
+    else text == "completed":
+        out = Status.completed
+        ret true
+    end
+    ret false
+end
+
+@doc "Parse a priority written by a client. Returns false on an unknown word."
+pub func PriorityFromText(text: str, out &: Priority): bool:
+    if text == "low":
+        out = Priority.low
+        ret true
+    else text == "medium":
+        out = Priority.medium
+        ret true
+    else text == "high":
+        out = Priority.high
+        ret true
+    else text == "urgent":
+        out = Priority.urgent
+        ret true
+    end
+    ret false
+end

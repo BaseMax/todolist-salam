@@ -1,0 +1,125 @@
+package validate
+
+import encoding.json
+include model "model.salam"
+include apierr "apierr.salam"
+include request "request.salam"
+
+const MaxTitleLength := 200
+const MaxDescriptionLength := 2000
+const MaxTagCount := 20
+const MaxTagLength := 40
+
+func issue(issues &: Vector<apierr.FieldIssue>, field: str, message: str):
+    item := apierr.FieldIssue { field = field, message = message }
+    issues.push(item)
+end
+
+func valid_date(text: str): bool:
+    if text.len() != 10:
+        ret false
+    end
+    repeat 10 in i:
+        c := text.char_at(i)
+        if i == 4 or i == 7:
+            if c != "-":
+                ret false
+            end
+        else:
+            if c < "0" or c > "9":
+                ret false
+            end
+        end
+    end
+    ret true
+end
+
+func check_tags(tags: Vector<str>, issues &: Vector<apierr.FieldIssue>):
+    if tags.len() > MaxTagCount:
+        issue(issues, "tags", "at most 20 tags are allowed")
+    end
+    each tag in tags:
+        if tag.len() == 0:
+            issue(issues, "tags", "a tag cannot be empty")
+        else tag.len() > MaxTagLength:
+            issue(issues, "tags", "a tag is at most 40 characters long")
+        end
+    end
+end
+
+@doc "Check a request body against the rules and write the resulting task to out." "A missing, null or wrongly typed member is reported in issues rather than thrown; out always receives a value whose tags vector the caller owns."
+pub func Apply(body: str, base: model.Task, require_title: bool, out &: model.Task, issues &: Vector<apierr.FieldIssue>): bool:
+    mut t := base
+    t.tags = base.tags.copy()
+
+    if json.Has(body, "title"):
+        title := request.Text(body, "title", "").trim()
+        if title.len() == 0:
+            issue(issues, "title", "title is required and cannot be blank")
+        else title.char_count() > MaxTitleLength:
+            issue(issues, "title", "title is at most 200 characters long")
+        else:
+            t.title = title
+        end
+    else require_title:
+        issue(issues, "title", "title is required")
+    end
+
+    if json.Has(body, "description"):
+        text := request.Text(body, "description", "")
+        if text.char_count() > MaxDescriptionLength:
+            issue(issues, "description", "description is at most 2000 characters long")
+        else:
+            t.description = text
+        end
+    end
+
+    if json.Has(body, "status"):
+        raw := request.Text(body, "status", "")
+        mut parsed := t.status
+        if model.StatusFromText(raw, parsed):
+            t.status = parsed
+        else:
+            issue(issues, "status", "status must be one of pending, in_progress, completed")
+        end
+    end
+
+    if json.Has(body, "priority"):
+        raw := request.Text(body, "priority", "")
+        mut parsed := t.priority
+        if model.PriorityFromText(raw, parsed):
+            t.priority = parsed
+        else:
+            issue(issues, "priority", "priority must be one of low, medium, high, urgent")
+        end
+    end
+
+    if json.Has(body, "tags"):
+        mut parsed := Vector {} as Vector<str>
+        if request.Strings(body, "tags", parsed):
+            check_tags(parsed, issues)
+            if issues.len() == 0:
+                t.tags.free()
+                t.tags = parsed
+            else:
+                parsed.free()
+            end
+        else:
+            issue(issues, "tags", "tags must be an array of strings")
+        end
+    end
+
+    if json.Has(body, "due_date"):
+        raw := request.Text(body, "due_date", "").trim()
+        if raw.len() == 0:
+            t.due_date = ""
+        else valid_date(raw):
+            t.due_date = raw
+        else:
+            issue(issues, "due_date", "due_date must look like 2026-01-31")
+        end
+    end
+
+    out = t
+    ret issues.len() == 0
+end

@@ -1,0 +1,22 @@
+package request
+
+import encoding.json
+import encoding.encerr
+
+@doc "Read a string member of a JSON object, or the default when it is absent."
+pub func Text(body: str, key: str, def: str): str:
+    if not json.Has(body, key):
+        ret def
+    end
+    ret json.Unquote(json.Get(body, key))
+end
+
+@doc "Read an array of strings out of a JSON object."
+pub func Strings(body: str, key: str, out &: Vector<str>): bool:
+    raw := json.Get(body, key)
+    if raw.len() == 0 or raw.char_at(0) != "[":
+        ret false
+    end
+    mut e := encerr.NoError()
+    ret json.Unmarshal(raw, out, e)
+end

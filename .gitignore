@@ -1,0 +1,5 @@
+.salam-build/
+todolist
+*.o
+data/
+.DS_Store

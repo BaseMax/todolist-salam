@@ -1,0 +1,23 @@
+package routes
+
+import net.router
+include config "config.salam"
+include handlers "handlers.salam"
+
+@doc "The whole route table, in one place."
+pub func Build(cfg: config.Config): router.Router:
+    mut r := router.NewRouter()
+    prefix := cfg.api_prefix
+    router.Get(r, "/health", handlers.Health)
+    router.Get(r, prefix.concat("/tasks"), handlers.ListTasks)
+    router.Post(r, prefix.concat("/tasks"), handlers.CreateTask)
+    router.Get(r, prefix.concat("/tasks/stats"), handlers.Stats)
+    router.Delete(r, prefix.concat("/tasks/completed"), handlers.ClearCompleted)
+    router.Get(r, prefix.concat("/tasks/:id"), handlers.GetTask)
+    router.Put(r, prefix.concat("/tasks/:id"), handlers.UpdateTask)
+    router.Patch(r, prefix.concat("/tasks/:id"), handlers.PatchTask)
+    router.Delete(r, prefix.concat("/tasks/:id"), handlers.DeleteTask)
+    router.Post(r, prefix.concat("/tasks/:id/complete"), handlers.CompleteTask)
+    router.Post(r, prefix.concat("/tasks/:id/reopen"), handlers.ReopenTask)
+    ret r
+end
